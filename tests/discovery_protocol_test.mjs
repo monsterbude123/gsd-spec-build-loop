@@ -1354,6 +1354,165 @@ Needs: S-1`,
     { closed: true, slices: 2 },
   );
   assert.equal(filingState.closeAttempts, 1);
+
+  // The repository issues list endpoint is eventually consistent, so it does
+  // not show a slice issue this helper just created. Filing must wait for the
+  // write it made to become visible instead of reporting it unreconcilable.
+  const lagPlanBody = mapBody();
+  const lagDraft = `## Why
+
+Users need a reliable way to regain access to their account.
+
+Discovery map: #10
+Discovery slice: S-1
+Discovery plan: ${planIdentity(lagPlanBody)}
+
+## Outcomes
+
+- [ ] O-1 — A user can request recovery.
+
+## Exclusions
+
+- X-1 — Completing recovery remains unchanged.
+
+## Code pointers
+
+- lib/recovery.mjs — Handles recovery requests.
+
+## Testing notes
+
+- Cover successful and rejected recovery requests.
+
+## Manual walkthrough
+
+1. Request recovery and confirm the acknowledgement appears.
+`;
+  const lagPath = join(testRoot, "lagging-slice.md");
+  writeFileSync(lagPath, lagDraft);
+
+  function laggingState(hiddenReads) {
+    return {
+      hiddenReads,
+      created: null,
+      listReads: 0,
+      createAttempts: 0,
+      mapBody: lagPlanBody,
+      sleeps: [],
+    };
+  }
+
+  function laggingRun(state) {
+    return function run(program, argumentsList, options = {}) {
+      const joined = argumentsList.join(" ");
+      if (joined.includes("issues?state=all")) {
+        state.listReads += 1;
+        const visible = state.created && state.listReads > state.hiddenReads
+          ? [state.created]
+          : [];
+        return {
+          status: 0,
+          stdout: pages([{
+            number: 7,
+            title: "Choose channel",
+            body: decisionBody(),
+            html_url: issueUrl,
+          }, ...visible]),
+          stderr: "",
+        };
+      }
+      if (joined.includes("sub_issues?")) {
+        return {
+          status: 0,
+          stdout: pages([{
+            number: 7,
+            title: "Choose channel",
+            html_url: issueUrl,
+            state: "closed",
+          }]),
+          stderr: "",
+        };
+      }
+      if (joined.includes("issues/7/comments?")) {
+        return { status: 0, stdout: pages([{
+          author_association: "MEMBER",
+          user: { login: "resolver" },
+          body: trustedResolution,
+        }]), stderr: "" };
+      }
+      if (joined.includes("issues/10/comments?")) {
+        return { status: 0, stdout: pages([{
+          author_association: "MEMBER",
+          user: { login: "resolver" },
+          body: `gsd-loop graduation for map #10
+
+Discovery plan: ${planIdentity(lagPlanBody)}`,
+        }]), stderr: "" };
+      }
+      if (joined.includes("issues/7/dependencies/blocked_by?")) {
+        return { status: 0, stdout: pages([]), stderr: "" };
+      }
+      if (joined.includes("issue create")) {
+        state.createAttempts += 1;
+        state.listReads = 0;
+        state.created = {
+          id: 601,
+          number: 20,
+          title: "Request recovery",
+          body: lagDraft,
+          html_url: "https://github.com/octocat/project/issues/20",
+          state: "open",
+        };
+        // gh reports success and prints the new issue URL; the list endpoint
+        // has not caught up yet.
+        return {
+          status: 0,
+          stdout: "https://github.com/octocat/project/issues/20\n",
+          stderr: "",
+        };
+      }
+      if (joined.includes("issue view 10")) {
+        return { status: 0, stdout: mapIssue(state.mapBody), stderr: "" };
+      }
+      if (joined.includes("issue edit 10")) {
+        state.mapBody = options.input;
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected: ${joined}` };
+    };
+  }
+
+  const laggedFiling = laggingState(3);
+  const lagSleeps = laggedFiling.sleeps;
+  const filedAfterLag = fileDiscoverySlice({
+    repo,
+    map,
+    slice: "S-1",
+    title: "Request recovery",
+    bodyPath: lagPath,
+    run: laggingRun(laggedFiling),
+    sleep: (milliseconds) => lagSleeps.push(milliseconds),
+  });
+  assert.equal(filedAfterLag.number, 20);
+  assert.equal(laggedFiling.createAttempts, 1);
+  assert.deepEqual(lagSleeps, [1000, 2000, 4000]);
+  assert.match(laggedFiling.mapBody, /- S-1 — \[Request recovery\].*issues\/20/);
+
+  // The reconciliation guard still fires when the write never becomes visible.
+  const neverVisible = laggingState(Number.MAX_SAFE_INTEGER);
+  const exhaustedSleeps = neverVisible.sleeps;
+  assert.throws(
+    () => fileDiscoverySlice({
+      repo,
+      map,
+      slice: "S-1",
+      title: "Request recovery",
+      bodyPath: lagPath,
+      run: laggingRun(neverVisible),
+      sleep: (milliseconds) => exhaustedSleeps.push(milliseconds),
+    }),
+    /slice S-1 creation could not be reconciled/,
+  );
+  assert.deepEqual(exhaustedSleeps, [1000, 2000, 4000, 8000, 8000, 8000]);
 } finally {
   rmSync(testRoot, { recursive: true, force: true });
 }
