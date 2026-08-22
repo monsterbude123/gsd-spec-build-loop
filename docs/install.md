@@ -59,7 +59,7 @@ repository setup.
 
 ### Install and initialize together
 
-Run this inside an existing GitHub worktree:
+Run this inside an existing GitHub checkout:
 
 ```bash
 npx @opengsd/gsd-loop@latest init
@@ -72,7 +72,7 @@ npx @opengsd/gsd-loop@latest init
 - creates the five queue/review `gsd:*` labels without replacing existing
   labels; the first discovery pass creates `gsd:map` when needed;
 - locally excludes `.gsd/scheduled_tasks.lock` so native scheduling cannot make
-  the worktree look dirty to a builder pass;
+  the main checkout look dirty to a builder pass;
 - when one successful check is selected, creates or updates only the dedicated
   `gsd-loop required CI` ruleset.
 

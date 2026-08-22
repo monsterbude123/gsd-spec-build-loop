@@ -71,6 +71,15 @@ tr '\n' ' ' < "$ROOT/.agents/skills/gsd-loop-spec/SKILL.md" |
 grep -q 'manage-discovery.mjs' "$ROOT/.agents/skills/gsd-loop-discover/SKILL.md"
 grep -q 'manage-discovery.mjs' "$ROOT/.agents/skills/gsd-loop-spec/SKILL.md"
 grep -q 'Discard issues labeled `gsd:map`' "$BUILD"
+grep -q 'git worktree add' "$BUILD"
+grep -q 'git worktree prune' "$BUILD"
+grep -q 'git worktree remove' "$BUILD"
+grep -Fq '$(basename "$MAIN_TREE")-worktrees' "$BUILD"
+grep -q 'worktree-fallback' "$BUILD"
+grep -Fq 'Uncommitted changes in a `gsd/NNN-*` worktree, PR open' "$BUILD"
+grep -Fq 'Uncommitted changes in a `gsd/NNN-*` worktree, no PR' "$BUILD"
+grep -q 'never create a duplicate' "$BUILD"
+grep -q 'leave the worktree in place' "$BUILD"
 
 repair_section=$(sed -n '/^## Repair queue takes priority/,/^## Choose an issue/p' "$BUILD")
 recovery_section=$(printf '%s\n' "$repair_section" |

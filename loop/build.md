@@ -15,6 +15,27 @@ there's nothing to race.
 - Look up the default branch —
   `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name` — and
   use what it says, whatever it says.
+- A pass never checks its branch out in the repository's main working tree.
+  Each `gsd/NNN-*` branch lives in a dedicated git worktree at a predictable
+  sibling path, so the main tree stays on the default branch and dependency
+  installs never touch it:
+
+```bash
+MAIN_TREE=$(git rev-parse --show-toplevel)
+WORKTREES_DIR="$(dirname "$MAIN_TREE")/$(basename "$MAIN_TREE")-worktrees"
+# one directory per branch, slashes flattened:
+#   branch gsd/NNN-short-slug  →  $WORKTREES_DIR/gsd-NNN-short-slug
+```
+
+  Create it with `git worktree add` (see "Implement") and run every
+  checkout-side operation from inside it — installs, builds, tests, commits,
+  pushes, `gh pr create` — directly or via `git -C`. Because the path derives
+  from the branch name, two concurrent passes on different issues occupy
+  different worktrees, and a resumed pass lands back in the same directory.
+  If `git worktree add` fails — worktrees unsupported or blocked on this
+  host — fall back to checking the branch out in the main tree under the
+  dirty-worktree guards below, and say so in the pass report and the result
+  line's `reason`. Everything else about the pass is unchanged.
 - Guarantee the queue/review label vocabulary exists (repeat-safe,
   non-destructive):
 
@@ -27,20 +48,42 @@ done
 ## Pick up after a dead pass
 
 A pass can die on any line, so recovery reads git and GitHub state rather
-than trusting memory:
+than trusting memory. Sweep stale worktrees first, then classify what is
+left:
 
-- **Uncommitted changes on a `gsd/NNN-*` branch, PR open** → a repair pass
-  died. Re-enter the repair flow below for that PR.
-- **Uncommitted changes on a `gsd/NNN-*` branch, no PR** → a build pass died.
-  Re-check that issue is still open, still `gsd:ready`, still yours; if so,
-  pick up at "Implement". If not, leave everything in place, report, stop.
+- **Stale `gsd/NNN-*` worktrees.** List them with
+  `git worktree list --porcelain`. For each one on a `gsd/NNN-*` branch,
+  check the branch's PR
+  (`gh pr list --head BRANCH --state all --json number,state`) and whether
+  the branch still exists on origin (`git ls-remote --heads origin BRANCH`).
+  If the PR is merged or closed, or the branch is gone from origin, remove
+  the worktree and prune its administrative entry:
+
+```bash
+git worktree remove PATH   # inspect any leftovers before adding --force
+git worktree prune
+```
+
+  A merged PR's worktree is debris, not state — clear it before claiming
+  new work, so no stale entry lingers under `.git/worktrees/`.
+- **Uncommitted changes in a `gsd/NNN-*` worktree, PR open** → a repair
+  pass died. Re-enter the repair flow below for that PR, working in that
+  worktree.
+- **Uncommitted changes in a `gsd/NNN-*` worktree, no PR** → a build pass
+  died. Re-check that issue is still open, still `gsd:ready`, still yours;
+  if so, pick up at "Implement" in that worktree. If not, leave everything
+  in place, report, stop.
+- **Uncommitted changes on a `gsd/NNN-*` branch in the main tree** → a
+  fallback-mode pass (or one from before worktrees) died there. The same
+  two verdicts above apply to the main tree.
 - **Uncommitted changes anywhere else** → not the loop's doing. Name the
   files, stop. Stashing, resetting, or committing someone else's work is
   forbidden.
-- **Clean tree, but a `gsd/NNN-*` branch (local or on origin) exists for an
+- **Clean trees, but a `gsd/NNN-*` branch (local or on origin) exists for an
   open issue assigned to you with no PR** → a pass died between commit/push
-  and PR creation. Check out the branch, diff it against the issue's
-  outcomes, and continue from "Implement" or "Open the PR" as appropriate.
+  and PR creation. Reuse the branch's worktree if one exists — create it
+  otherwise, resuming the branch as-is — then diff it against the issue's
+  outcomes and continue from "Implement" or "Open the PR" as appropriate.
 - **Abandoned claims.** Find them:
 
   ```bash
@@ -76,6 +119,11 @@ REVIEWER_LOGIN="$REVIEWER_LOGIN" ISSUE="$ISSUE" \
   --jq '[.[][] | select(.user.login == env.REVIEWER_LOGIN and ((.body | split("\n")[0]) | startswith("gsd-loop verdict for ")) and ((.body | split("\n")[0]) | endswith(" issue #" + env.ISSUE)))] | last'
 ```
 
+Work the repair inside the PR branch's worktree: reuse the one a dead pass
+left, or create it with `git worktree add "$WORKTREES_DIR/BRANCH" BRANCH`
+(flattening the branch's `/` in the directory name). All fixes, checks, and
+pushes run from there — the main tree never changes branches.
+
 - A verdict's first line must pin both its SHA and linked issue as
   `gsd-loop verdict for COMMIT_SHA issue #ISSUE`; ignore comments by any other
   author or pinned to another issue.
@@ -85,8 +133,9 @@ REVIEWER_LOGIN="$REVIEWER_LOGIN" ISSUE="$ISSUE" \
   `node LINKAGE_SYNC ISSUE --repo OWNER/REPO --pr NUMBER --head HEAD_SHA`.
   Only after that guard passes, drop `gsd:rework`, stop — the reviewer will take
   it from here.
-- Can't check out the branch (deleted head, vanished fork)? Comment what
-  happened, trade `gsd:rework` for `gsd:escalated`, stop.
+- Can't check out the branch (deleted head, vanished fork, worktree creation
+  refused)? Comment what happened, trade `gsd:rework` for `gsd:escalated`,
+  stop.
 - Otherwise: address only the verdict's "Blocking" items, run the checks
   that cover them. Before pushing, inspect the complete PR diff against the
   default-branch baseline. If it changes a dependency manifest or lockfile,
@@ -155,17 +204,32 @@ unrecoverable failure.
 
 ## Implement
 
-- Update from `origin`'s default branch, then create or resume
-  `gsd/NNN-short-slug` (real issue number). If origin already has the
-  branch, build on it as-is — force-pushing over it is forbidden.
+- Fetch `origin`, then create or resume the branch's worktree (real issue
+  number in `NNN`):
+  - Origin already has `gsd/NNN-short-slug` → resume it as-is:
+    `git worktree add "$WORKTREES_DIR/gsd-NNN-short-slug" gsd/NNN-short-slug`.
+    Force-pushing over it is forbidden. If the worktree already exists,
+    enter it — never create a duplicate.
+  - Otherwise base a new branch on origin's default branch:
+    `git worktree add -b gsd/NNN-short-slug "$WORKTREES_DIR/gsd-NNN-short-slug" origin/DEFAULT`.
+  - `git worktree add` failed → fall back to the in-tree checkout per the
+    ground rules, and say so in the report and result `reason`.
+- Work entirely inside the worktree: dependency installs, builds, tests,
+  and commits. The main tree stays on the default branch and its installed
+  dependencies must not change — verify with
+  `git rev-parse --abbrev-ref HEAD` there before and after.
 - Follow the codebase's existing architecture, style, and names.
 - Logic, data flow, permissions, integrations, or visible behavior changed?
   Tests change with it.
 - Everything the contract doesn't mention keeps working exactly as before.
+- If the pass fails mid-flight, leave the worktree in place for inspection
+  and name its path in the report. Cleanup belongs to a later pass's
+  recovery sweep, never to the failing pass.
 
 ## Prove it
 
-Run whatever lint, typecheck, build, and focused tests this change implicates.
+Run whatever lint, typecheck, build, and focused tests this change implicates
+from inside the worktree.
 Everything attributable to your diff must pass. When a broad suite fails for
 pre-existing unrelated reasons, run the narrow equivalent, keep the output,
 and disclose both in the PR.
@@ -204,8 +268,8 @@ anything secret-shaped in the diff = full stop.
 
 First re-confirm the issue is still open and `gsd:ready` — a human may have
 pulled it mid-build. If they did, comment what the branch contains, skip the
-PR, stop. Otherwise push and run `gh pr create --body-file` with a compact
-body containing:
+PR, stop. Otherwise push from the worktree and run `gh pr create --body-file`
+there with a compact body containing:
 
 - The change and its motivation
 - `Closes #NNN` (real number)
@@ -237,7 +301,9 @@ This repeat-safe guard preserves the current PR body and restores its explicit
 change, or failed verification blocks the pass. Do not report successful handoff
 until the guard passes. Then drop the PR URL as an issue comment. Merge-time
 closure is `Closes #NNN`'s job — never close the issue by hand, never merge,
-never arm auto-merge. Stop.
+never arm auto-merge. Leave the worktree in place after a successful pass;
+the recovery sweep removes it once the PR merges or the branch is deleted.
+Stop.
 
 ## Hand it back
 
@@ -269,4 +335,9 @@ GSD_LOOP_RESULT={"lane":"build","status":"work|idle|blocked","reason":"short-rea
 Use `work` when the pass changed GitHub or git state, including a hand-back or
 escalation; use `idle` only when both queues are empty; use `blocked` when a
 preflight, permission, dirty-worktree, or malformed-contract condition prevents
-the pass from safely reaching one of those outcomes.
+the pass from safely reaching one of those outcomes. Here `dirty-worktree`
+means unexpected uncommitted changes the recovery states above cannot resolve
+— in the main tree or anywhere else — never state the loop produced itself.
+When the pass ran in fallback mode, say so in `reason` (e.g.
+`worktree-fallback`); when a failed pass leaves a worktree behind, name its
+path in the report above the result line.
