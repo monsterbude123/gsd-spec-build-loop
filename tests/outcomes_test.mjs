@@ -178,6 +178,23 @@ assert.throws(
   () => transformOutcomeChecklist("## Outcomes\n\n- [ ] O-1 — first\n\n## Outcomes\n\n- [ ] O-2 — second\n", "complete"),
   /multiple Outcomes sections/,
 );
+const extraSectionBody = `## Why
+
+Ship the walking skeleton.
+
+## Outcomes
+
+- [ ] O-1 — tests pass
+
+## Notes
+
+- [ ] a stray checkbox is fine outside Outcomes
+- free-form prose survives untouched
+`;
+assert.equal(
+  transformOutcomeChecklist(extraSectionBody, "complete"),
+  extraSectionBody.replace("- [ ] O-1", "- [x] O-1"),
+);
 
 const calls = [];
 const completedBody = transformOutcomeChecklist(issueBody, "complete");
