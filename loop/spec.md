@@ -95,6 +95,7 @@ recommended answer, then the alternatives. Stick to genuine product forks:
 - Where this issue stops — what's deliberately left out
 - Edge conditions that alter the contract: empty data, denied access,
   failures mid-flow
+- Running it twice: is the second run a no-op, an error, or a duplicate?
 - Consequences for stored data: migrations, backfills, legacy records
 
 When the work exposes a command, API, or other machine-facing interface, also
@@ -162,6 +163,11 @@ Constraints on the content:
 - Outcomes and exclusions carry permanent `O-N` / `X-N` ids. Downstream, the
   builder implements exactly the `O` list and the reviewer audits against it;
   the `X` list is the fence neither may cross.
+- `## Outcomes` is machine-parsed before every review audit: only `- [ ] O-N`
+  checklist entries belong there. Any other checkbox or outcome-adjacent line
+  blocks outcome synchronization and halts the review lane. Free-form content
+  goes in its own `##` section, never under `## Outcomes` — the six-section
+  template is a contract, not a suggestion.
 - Every `O-N` checkbox has a non-empty description after the em dash. An empty
   outcome is not a contract and blocks filing or outcome synchronization.
 - An outcome that can't be met without violating an exclusion is a
@@ -248,6 +254,13 @@ human actually reads):
   off.
 - When something gets `gsd:escalated`, resolve it, then take that label off.
 - Merging is exclusively yours. The loop never merges anything.
+
+## Amending a filed issue
+
+A spec pass is single-shot: once an issue is filed, this playbook never edits
+it, whether or not it has entered the queue. Re-running spec against an
+already-filed issue refuses — read it, then stop. A changed idea means a new
+contract: file a new issue and have the human close or supersede the old one.
 
 ## The one prohibition
 
