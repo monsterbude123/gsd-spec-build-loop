@@ -49,8 +49,20 @@ any verdict. Save the exact body for this audit and fingerprint it:
 
 ```bash
 gh issue view ISSUE --repo OWNER/REPO --json body | jq -j .body > ISSUE_BODY
-CONTRACT_SHA=$(node OUTCOME_SYNC fingerprint < ISSUE_BODY)
+if ! CONTRACT_SHA=$(node OUTCOME_SYNC fingerprint < ISSUE_BODY); then
+  CONTRACT_SHA=
+fi
 ```
+
+If the body cannot be read or `CONTRACT_SHA` is empty, approval has no valid
+contract evidence. Before stopping, re-fetch the PR head and resolve linkage
+again using "Establish the contract." Only if the head still equals `HEAD_SHA`
+and the same `OWNER/REPO` issue is still linked, remove `gsd:approved` if present.
+If either check fails or cannot be completed, stop without changing labels.
+Report the pass as blocked with the read or validation error and whether approval
+was removed. Do not synchronize outcomes, match verdicts, or audit an invalid
+contract. A label removal failure also blocks the pass; never report that approval
+was removed unless the command succeeded.
 
 The fingerprint ignores outcome checkbox state but covers all other issue
 content. Keep this value fixed throughout the audit. A verdict without the
@@ -103,7 +115,8 @@ changes only `O-N` checkboxes in `## Outcomes`. GitHub has no conditional
 Update Issue mutation, so an edit in the narrow interval between the final
 pre-write body check and `gh issue edit` can still be overwritten; the
 immediate post-write check detects many such races but cannot make the update
-atomic. If the command is unavailable or fails, report the pass as blocked;
+atomic. If the command is unavailable or fails, use the same guarded approval
+removal described at the contract-read boundary, then report the pass as blocked;
 never edit the issue body with an ad-hoc text transform. After it succeeds,
 re-fetch the head and remove `gsd:approved`; a changed head stops the pass
 before label mutation. Missing `gsd:approved` is a no-op. If this changes the
