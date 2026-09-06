@@ -106,7 +106,7 @@ the support matrix, and recovery.
 
 ## Your four duties
 
-The loop is deliberately incapable of doing these:
+The playbooks reserve these actions for humans:
 
 1. Apply `gsd:ready` after reading a filed issue — nothing builds without it.
 2. Answer `gsd:blocked` questions, then remove the label.
@@ -137,11 +137,11 @@ for the exact publisher settings and procedure.
 
 ## Design notes
 
-- **One head and linked issue, one verdict.** Trusted verdict comments open
-  with `gsd-loop verdict for <sha> issue #<number>`; that head-and-issue pair
-  is never re-audited, and crashed passes repair issue checkboxes and labels
-  from the existing verdict instead. New commits invalidate checked outcomes
-  until the new head is independently approved.
+- **One head, linked issue, and contract version, one verdict.** Trusted
+  verdicts identify the commit, issue number, and issue-body fingerprint.
+  Crashed passes repair checkboxes and labels from matching evidence.
+  New commits or contract edits require a fresh review. Outcome checkbox
+  changes alone preserve the fingerprint.
 - **Crash-anywhere recovery.** The builder reconstructs state from git and
   GitHub (dirty trees, orphaned `gsd/NNN-*` branches, stale claims) rather
   than from memory, so a pass can die on any line without wedging the queue.

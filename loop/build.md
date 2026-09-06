@@ -127,8 +127,10 @@ pushes run from there — the main tree never changes branches.
 - A verdict's first line must pin both its SHA and linked issue as
   `gsd-loop verdict for COMMIT_SHA issue #ISSUE`; ignore comments by any other
   author or pinned to another issue.
-- Trusted verdict SHA already matches the head? The label outlived its verdict
-  (fixes were pushed but the label removal died). Re-fetch the final PR head as
+- Trusted verdict SHA matches the head? Its blocking findings still apply.
+  Keep `gsd:rework` and continue with the repair below.
+- Trusted verdict SHA differs from the head? New commits need review.
+  Re-fetch the final PR head as
   `HEAD_SHA` and run
   `node LINKAGE_SYNC ISSUE --repo OWNER/REPO --pr NUMBER --head HEAD_SHA`.
   Only after that guard passes, drop `gsd:rework`, stop — the reviewer will take

@@ -83,7 +83,7 @@ grep -q 'leave the worktree in place' "$BUILD"
 
 repair_section=$(sed -n '/^## Repair queue takes priority/,/^## Choose an issue/p' "$BUILD")
 recovery_section=$(printf '%s\n' "$repair_section" |
-  sed -n '/Trusted verdict SHA already matches/,/Can.t check out the branch/p')
+  sed -n '/Trusted verdict SHA differs/,/Can.t check out the branch/p')
 printf '%s\n' "$repair_section" | grep -q 'dependency manifest or lockfile'
 printf '%s\n' "$recovery_section" |
   grep -q 'node LINKAGE_SYNC ISSUE --repo OWNER/REPO --pr NUMBER --head HEAD_SHA'

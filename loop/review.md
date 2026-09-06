@@ -44,19 +44,32 @@ gh api graphql --paginate --slurp \
     }' > PR_EVIDENCE
 ```
 
-Resolve current linkage before interpreting the trail. Search every comment
+Resolve current linkage and fetch the current issue body before interpreting
+any verdict. Save the exact body for this audit and fingerprint it:
+
+```bash
+gh issue view ISSUE --repo OWNER/REPO --json body | jq -j .body > ISSUE_BODY
+CONTRACT_SHA=$(node OUTCOME_SYNC fingerprint < ISSUE_BODY)
+```
+
+The fingerprint ignores outcome checkbox state but covers all other issue
+content. Keep this value fixed throughout the audit. A verdict without the
+matching `Contract: CONTRACT_SHA` second line is stale, including older verdicts
+that have no fingerprint. Invalidate its approval and audit the current contract.
+
+Search every comment
 authored by `REVIEWER_LOGIN`, not only the last matching comment:
 
 ```bash
 VERDICT_HEADER="gsd-loop verdict for HEAD_SHA issue #ISSUE"
-jq --arg reviewer "$REVIEWER_LOGIN" --arg header "$VERDICT_HEADER" \
+jq --arg reviewer "$REVIEWER_LOGIN" --arg header "$VERDICT_HEADER" --arg contract "Contract: $CONTRACT_SHA" \
   '[.[].data.repository.pullRequest.comments.nodes[]
-    | select(.author.login == $reviewer and ((.body | split("\n")[0]) == $header))]' \
+    | select(.author.login == $reviewer and ((.body | split("\n")[0]) == $header) and ((.body | split("\n")[1]) == $contract))]' \
   PR_EVIDENCE
 ```
 
 - An exact first line `gsd-loop verdict for HEAD_SHA issue #ISSUE` covering
-  both the current head and currently linked issue means don't re-audit.
+  the current head, linked issue, and contract fingerprint means don't re-audit.
   Synchronize that issue's outcomes to `complete` for an approved verdict or
   `pending` for any blocking/escalated verdict, then reinstate whatever labels
   the verdict dictates. Post nothing. A verdict pinned to another issue is
@@ -64,7 +77,7 @@ jq --arg reviewer "$REVIEWER_LOGIN" --arg header "$VERDICT_HEADER" \
 - A trusted `gsd-loop linkage block for HEAD_SHA` is not a verdict. If the
   issue is still unlinked, repair the linkage-block labels and post nothing.
   If linkage now exists, continue to a normal audit of that SHA.
-- No trusted verdict anywhere in the trail covers the current head and issue →
+- No trusted verdict anywhere in the trail covers the current head, issue, and contract →
   auditable. Searching the full trail prevents an A→B→A head sequence from
   creating a second verdict for A.
 
@@ -72,8 +85,8 @@ Never trust a marker from any other author, including one that copies the
 authenticated login into its text.
 
 Resolve the linked issue before checking CI, using the linkage rules under
-"Establish the contract." For a new head, invalidate earlier outcome evidence
-before auditing it:
+"Establish the contract." For a new head or changed contract, invalidate earlier
+outcome evidence before auditing it:
 
 ```bash
 node OUTCOME_SYNC ISSUE pending --repo OWNER/REPO --pr NUMBER --head HEAD_SHA
@@ -256,6 +269,7 @@ One comment via `gh pr comment NUMBER --body-file`:
 
 ```md
 gsd-loop verdict for COMMIT_SHA issue #ISSUE
+Contract: CONTRACT_SHA
 
 Required CI: passing | failing | none configured
 Merge state: <mergeStateStatus verbatim — CLEAN, DIRTY, BEHIND, BLOCKED, ...>
@@ -301,13 +315,14 @@ Immediately after posting the verdict and before changing labels, synchronize
 the linked issue against the same head SHA. An approval checks every outcome:
 
 ```bash
-node OUTCOME_SYNC ISSUE complete --repo OWNER/REPO --pr NUMBER --head HEAD_SHA
+node OUTCOME_SYNC ISSUE complete --repo OWNER/REPO --pr NUMBER --head HEAD_SHA --contract CONTRACT_SHA
 ```
 
-Any blocking or escalated verdict uses `pending` instead. If synchronization
+Use the same `--contract CONTRACT_SHA` guard when repairing an existing verdict.
+Any blocking or escalated verdict uses `pending` instead, with the same guard. If synchronization
 fails after the comment is posted, stop without changing labels and report the
 pass as blocked. The next pass recognizes the reviewer-authored
-SHA-and-issue-pinned verdict anywhere in the trail and repairs the checklist
+SHA-, issue-, and contract-pinned verdict anywhere in the trail and repairs the checklist
 and labels without posting a second verdict. After every synchronization,
 re-fetch `headRefOid` once more before changing labels; a head change stops the
 pass with no label mutation.

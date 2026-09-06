@@ -1,5 +1,7 @@
+import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import {
+  fingerprintContract,
   parseOutcomeArguments,
   syncIssueOutcomes,
   transformOutcomeChecklist,
@@ -398,3 +400,34 @@ assert.throws(
 );
 
 console.log("outcome checklist synchronization passed");
+
+// A verdict for an older contract must not complete the current issue.
+assert.throws(() => syncIssueOutcomes({
+  cwd: "/tmp/project", repo: "octocat/project", issue: 1, pullRequest: 2,
+  expectedHead: "abc123", state: "complete", expectedContract: "0".repeat(64),
+  run: noOpRun,
+}), /contract changed/);
+
+const contract = fingerprintContract(issueBody);
+assert.equal(contract, fingerprintContract(transformOutcomeChecklist(issueBody, "complete")));
+for (const amended of [
+  issueBody.replace("## Exclusions", "- [ ] O-3 — new requirement\n\n## Exclusions"),
+  issueBody.replace("no delete command", "no network access"),
+]) {
+  assert.notEqual(fingerprintContract(amended), contract);
+}
+assert.equal(syncIssueOutcomes({
+  cwd: "/tmp/project", repo: "octocat/project", issue: 1, pullRequest: 2,
+  expectedHead: "abc123", state: "complete", expectedContract: contract,
+  run: noOpRun,
+}), false);
+assert.equal(parseOutcomeArguments([
+  "1", "complete", "--repo", "octocat/project", "--pr", "2", "--head", "abc1234",
+  "--contract", contract,
+]).expectedContract, contract);
+const fingerprintCommand = spawnSync(process.execPath, [
+  new URL("../.agents/skills/gsd-loop-review/scripts/sync-outcomes.mjs", import.meta.url).pathname,
+  "fingerprint",
+], { input: issueBody, encoding: "utf8" });
+assert.equal(fingerprintCommand.status, 0, fingerprintCommand.stderr);
+assert.equal(fingerprintCommand.stdout.trim(), contract);
