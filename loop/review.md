@@ -332,9 +332,11 @@ node OUTCOME_SYNC ISSUE complete --repo OWNER/REPO --pr NUMBER --head HEAD_SHA -
 ```
 
 Use the same `--contract CONTRACT_SHA` guard when repairing an existing verdict.
-Any blocking or escalated verdict uses `pending` instead, with the same guard. If synchronization
-fails after the comment is posted, stop without changing labels and report the
-pass as blocked. The next pass recognizes the reviewer-authored
+Any blocking or escalated verdict uses `pending` instead, with the same guard.
+If synchronization fails after posting a verdict or while repairing an existing
+verdict, use the same guarded approval removal described at the contract-read
+boundary, then report the pass as blocked. Do not apply the verdict's labels.
+The next pass recognizes the reviewer-authored
 SHA-, issue-, and contract-pinned verdict anywhere in the trail and repairs the checklist
 and labels without posting a second verdict. After every synchronization,
 re-fetch `headRefOid` once more before changing labels; a head change stops the
