@@ -46,7 +46,7 @@ global skill directory.
 | `gsd:ready` | human | merge (issue closes) | Approved for the build queue |
 | `gsd:blocked` | builder | human | One specific question awaits an answer |
 | `gsd:rework` | reviewer | builder or reviewer | Verdict has blocking findings |
-| `gsd:approved` | reviewer | reviewer on a new head or blocking verdict | Evidence complete and issue outcomes checked; merge is yours |
+| `gsd:approved` | reviewer | reviewer under the [approval invalidation rules](loop/review.md#choose-what-to-audit) | Evidence complete and issue outcomes checked; merge is yours |
 | `gsd:escalated` | either | human | Out of automation until a human resolves it |
 
 ## Quick start
