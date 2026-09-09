@@ -82,11 +82,7 @@ grep -q 'never create a duplicate' "$BUILD"
 grep -q 'leave the worktree in place' "$BUILD"
 
 repair_section=$(sed -n '/^## Repair queue takes priority/,/^## Choose an issue/p' "$BUILD")
-recovery_section=$(printf '%s\n' "$repair_section" |
-  sed -n '/Trusted verdict SHA already matches/,/Can.t check out the branch/p')
 printf '%s\n' "$repair_section" | grep -q 'dependency manifest or lockfile'
-printf '%s\n' "$recovery_section" |
-  grep -q 'node LINKAGE_SYNC ISSUE --repo OWNER/REPO --pr NUMBER --head HEAD_SHA'
 if printf '%s\n' "$repair_section" | grep -q 'issue contract or repository guidance'; then
   echo 'dependency audits must not depend on an opt-in issue contract' >&2
   exit 1

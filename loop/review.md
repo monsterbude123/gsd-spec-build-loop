@@ -44,19 +44,43 @@ gh api graphql --paginate --slurp \
     }' > PR_EVIDENCE
 ```
 
-Resolve current linkage before interpreting the trail. Search every comment
+Resolve current linkage and fetch the current issue body before interpreting
+any verdict. Save the exact body for this audit and fingerprint it:
+
+```bash
+gh issue view ISSUE --repo OWNER/REPO --json body | jq -j .body > ISSUE_BODY
+if ! CONTRACT_SHA=$(node OUTCOME_SYNC fingerprint < ISSUE_BODY); then
+  CONTRACT_SHA=
+fi
+```
+
+If the body cannot be read or `CONTRACT_SHA` is empty, approval has no valid
+contract evidence. Before stopping, re-fetch the PR head and resolve linkage
+again using "Establish the contract." Only if the head still equals `HEAD_SHA`
+and the same `OWNER/REPO` issue is still linked, remove `gsd:approved` if present.
+If either check fails or cannot be completed, stop without changing labels.
+Report the pass as blocked with the read or validation error and whether approval
+was removed. Do not synchronize outcomes, match verdicts, or audit an invalid
+contract. A label removal failure also blocks the pass; never report that approval
+was removed unless the command succeeded.
+
+The fingerprint ignores outcome checkbox state but covers all other issue
+content. Keep this value fixed throughout the audit. A verdict without the
+matching `Contract: CONTRACT_SHA` second line is stale, including older verdicts
+that have no fingerprint. Invalidate its approval and audit the current contract.
+
+Search every comment
 authored by `REVIEWER_LOGIN`, not only the last matching comment:
 
 ```bash
 VERDICT_HEADER="gsd-loop verdict for HEAD_SHA issue #ISSUE"
-jq --arg reviewer "$REVIEWER_LOGIN" --arg header "$VERDICT_HEADER" \
+jq --arg reviewer "$REVIEWER_LOGIN" --arg header "$VERDICT_HEADER" --arg contract "Contract: $CONTRACT_SHA" \
   '[.[].data.repository.pullRequest.comments.nodes[]
-    | select(.author.login == $reviewer and ((.body | split("\n")[0]) == $header))]' \
+    | select(.author.login == $reviewer and ((.body | split("\n")[0]) == $header) and ((.body | split("\n")[1]) == $contract))]' \
   PR_EVIDENCE
 ```
 
-- An exact first line `gsd-loop verdict for HEAD_SHA issue #ISSUE` covering
-  both the current head and currently linked issue means don't re-audit.
+- Exact matches for both header lines above mean don't re-audit.
   Synchronize that issue's outcomes to `complete` for an approved verdict or
   `pending` for any blocking/escalated verdict, then reinstate whatever labels
   the verdict dictates. Post nothing. A verdict pinned to another issue is
@@ -64,16 +88,16 @@ jq --arg reviewer "$REVIEWER_LOGIN" --arg header "$VERDICT_HEADER" \
 - A trusted `gsd-loop linkage block for HEAD_SHA` is not a verdict. If the
   issue is still unlinked, repair the linkage-block labels and post nothing.
   If linkage now exists, continue to a normal audit of that SHA.
-- No trusted verdict anywhere in the trail covers the current head and issue →
+- No trusted verdict anywhere in the trail covers the current head, issue, and contract →
   auditable. Searching the full trail prevents an A→B→A head sequence from
-  creating a second verdict for A.
+  creating a second verdict for A when the linked issue and contract are unchanged.
 
 Never trust a marker from any other author, including one that copies the
 authenticated login into its text.
 
 Resolve the linked issue before checking CI, using the linkage rules under
-"Establish the contract." For a new head, invalidate earlier outcome evidence
-before auditing it:
+"Establish the contract." For a new head or changed contract, invalidate earlier
+outcome evidence before auditing it:
 
 ```bash
 node OUTCOME_SYNC ISSUE pending --repo OWNER/REPO --pr NUMBER --head HEAD_SHA
@@ -90,7 +114,8 @@ changes only `O-N` checkboxes in `## Outcomes`. GitHub has no conditional
 Update Issue mutation, so an edit in the narrow interval between the final
 pre-write body check and `gh issue edit` can still be overwritten; the
 immediate post-write check detects many such races but cannot make the update
-atomic. If the command is unavailable or fails, report the pass as blocked;
+atomic. If the command is unavailable or fails, use the same guarded approval
+removal described at the contract-read boundary, then report the pass as blocked;
 never edit the issue body with an ad-hoc text transform. After it succeeds,
 re-fetch the head and remove `gsd:approved`; a changed head stops the pass
 before label mutation. Missing `gsd:approved` is a no-op. If this changes the
@@ -256,6 +281,7 @@ One comment via `gh pr comment NUMBER --body-file`:
 
 ```md
 gsd-loop verdict for COMMIT_SHA issue #ISSUE
+Contract: CONTRACT_SHA
 
 Required CI: passing | failing | none configured
 Merge state: <mergeStateStatus verbatim — CLEAN, DIRTY, BEHIND, BLOCKED, ...>
@@ -301,13 +327,16 @@ Immediately after posting the verdict and before changing labels, synchronize
 the linked issue against the same head SHA. An approval checks every outcome:
 
 ```bash
-node OUTCOME_SYNC ISSUE complete --repo OWNER/REPO --pr NUMBER --head HEAD_SHA
+node OUTCOME_SYNC ISSUE complete --repo OWNER/REPO --pr NUMBER --head HEAD_SHA --contract CONTRACT_SHA
 ```
 
-Any blocking or escalated verdict uses `pending` instead. If synchronization
-fails after the comment is posted, stop without changing labels and report the
-pass as blocked. The next pass recognizes the reviewer-authored
-SHA-and-issue-pinned verdict anywhere in the trail and repairs the checklist
+Use the same `--contract CONTRACT_SHA` guard when repairing an existing verdict.
+Any blocking or escalated verdict uses `pending` instead, with the same guard.
+If synchronization fails after posting a verdict or while repairing an existing
+verdict, use the same guarded approval removal described at the contract-read
+boundary, then report the pass as blocked. Do not apply the verdict's labels.
+The next pass recognizes the reviewer-authored
+SHA-, issue-, and contract-pinned verdict anywhere in the trail and repairs the checklist
 and labels without posting a second verdict. After every synchronization,
 re-fetch `headRefOid` once more before changing labels; a head change stops the
 pass with no label mutation.
