@@ -13,42 +13,29 @@ git state.
 Guarantee the labels exist (repeat-safe), then list candidates:
 
 ```bash
-for l in gsd:approved gsd:rework gsd:escalated; do
-  gh label create "$l" --color ededed 2>/dev/null || true
-done
-gh pr list --state open --limit 200 \
-  --json number,title,labels,isDraft,headRefName,headRefOid,updatedAt,url
+node FORGE ensure-labels \
+  --labels gsd:approved --labels gsd:rework --labels gsd:escalated \
+  --repo OWNER/NAME
+node FORGE pr-list --state open --repo OWNER/NAME
 ```
 
 Drafts are out of scope. Resolve the authenticated reviewer identity, then
-retrieve the complete author-bearing comment trail with GraphQL pagination:
+retrieve the complete author-bearing comment trail through the forge
+(the backend paginates; the projection is forge-neutral):
 
 ```bash
-REVIEWER_LOGIN=$(gh api user --jq .login)
-gh api graphql --paginate --slurp \
-  -F owner=OWNER -F name=REPO -F number=NUMBER \
-  -f query='
-    query($owner: String!, $name: String!, $number: Int!, $endCursor: String) {
-      repository(owner: $owner, name: $name) {
-        pullRequest(number: $number) {
-          author { login }
-          body
-          baseRefOid
-          headRefOid
-          comments(first: 100, after: $endCursor) {
-            nodes { author { login } body isMinimized }
-            pageInfo { hasNextPage endCursor }
-          }
-        }
-      }
-    }' > PR_EVIDENCE
+REVIEWER_LOGIN=$(node FORGE whoami --repo OWNER/REPO)
+node FORGE pr-evidence NUMBER --repo OWNER/REPO > PR_EVIDENCE
 ```
+
+`PR_EVIDENCE` is one JSON object: `{author: {login}, body, baseRefOid,
+headRefOid, comments: [{author: {login}, body, isMinimized}]}`.
 
 Resolve current linkage and fetch the current issue body before interpreting
 any verdict. Save the exact body for this audit and fingerprint it:
 
 ```bash
-gh issue view ISSUE --repo OWNER/REPO --json body | jq -j .body > ISSUE_BODY
+node FORGE issue-body ISSUE --repo OWNER/REPO > ISSUE_BODY
 if ! CONTRACT_SHA=$(node OUTCOME_SYNC fingerprint < ISSUE_BODY); then
   CONTRACT_SHA=
 fi
@@ -75,7 +62,7 @@ authored by `REVIEWER_LOGIN`, not only the last matching comment:
 ```bash
 VERDICT_HEADER="gsd-loop verdict for HEAD_SHA issue #ISSUE"
 jq --arg reviewer "$REVIEWER_LOGIN" --arg header "$VERDICT_HEADER" --arg contract "Contract: $CONTRACT_SHA" \
-  '[.[].data.repository.pullRequest.comments.nodes[]
+  '[.comments[]
     | select(.author.login == $reviewer and ((.body | split("\n")[0]) == $header) and ((.body | split("\n")[1]) == $contract))]' \
   PR_EVIDENCE
 ```
@@ -101,9 +88,9 @@ outcome evidence before auditing it:
 
 ```bash
 node OUTCOME_SYNC ISSUE pending --repo OWNER/REPO --pr NUMBER --head HEAD_SHA
-test "$(gh pr view NUMBER --json headRefOid --jq .headRefOid)" = "HEAD_SHA"
-if gh pr view NUMBER --json labels --jq '.labels[].name' | grep -Fxq gsd:approved; then
-  gh pr edit NUMBER --remove-label gsd:approved
+test "$(node FORGE pr-view NUMBER --repo OWNER/REPO | jq -r .headRefOid)" = "HEAD_SHA"
+if node FORGE pr-view NUMBER --repo OWNER/REPO | jq -r ".labels[]" | grep -Fxq gsd:approved; then
+  node FORGE pr-edit NUMBER --remove-label gsd:approved --repo OWNER/REPO
 fi
 ```
 
@@ -112,7 +99,7 @@ command verifies the PR head and issue linkage before and after its write,
 rejects malformed contracts, brackets the write with issue-body checks, and
 changes only `O-N` checkboxes in `## Outcomes`. GitHub has no conditional
 Update Issue mutation, so an edit in the narrow interval between the final
-pre-write body check and `gh issue edit` can still be overwritten; the
+pre-write body check and the forge issue-body write can still be overwritten; the
 immediate post-write check detects many such races but cannot make the update
 atomic. If the command is unavailable or fails, use the same guarded approval
 removal described at the contract-read boundary, then report the pass as blocked;
@@ -139,13 +126,14 @@ stopping the loop.
 
 ## Establish the contract
 
-Resolve the linked issue through GitHub's own linkage, with body-parsing of
-`Closes #NNN` only as a fallback. Do this once per candidate, before the CI
-gate and outcome invalidation described above:
+Resolve the linked issue through the forge's own linkage (GitHub resolves
+`Closes #NNN` server-side; GitLab is parsed from the merge-request
+description with the same close keywords), with body-parsing only as a
+fallback. Do this once per candidate, before the CI gate and outcome
+invalidation described above:
 
 ```bash
-gh pr view NUMBER --json closingIssuesReferences \
-  --jq '.closingIssuesReferences[] | {number, repository: .repository.nameWithOwner}'
+node FORGE pr-linkage NUMBER --repo OWNER/REPO
 ```
 
 Only a reference whose repository identity matches `OWNER/REPO` and whose
@@ -177,7 +165,7 @@ List the changed paths before accepting dependency evidence. The paginated
 and every comment with its author and minimization state:
 
 ```bash
-gh pr view NUMBER --json files --jq '[.files[].path]'
+node FORGE pr-files NUMBER --repo OWNER/REPO
 ```
 
 If a dependency manifest or lockfile changed, require branch-head evidence that
@@ -251,14 +239,15 @@ escalation.
 ## Gather merge evidence
 
 ```bash
-gh pr view NUMBER --json headRefOid,mergeable,mergeStateStatus
-gh pr checks NUMBER --required --json bucket,name,state,link
+node FORGE pr-merge-state NUMBER --repo OWNER/REPO
+node FORGE pr-checks NUMBER --repo OWNER/REPO
 ```
 
-`gh pr checks` has semantic exit codes — don't treat nonzero as a crash.
-Exit 8 = still pending. Exit 1 with `no required checks reported` (or
-`no checks reported`) on stderr = the repo defines no required checks, which
-is the escalation case below, not an error.
+`FORGE pr-checks` returns `{state, enforced, checks}` where `state` is
+`passing | failing | pending | none`. `pending` = still running; `none`
+(or `enforced: false`) = the repo defines no required checks, which is the
+escalation case below, not an error. The command encodes the same semantic
+exit codes internally — don't treat nonzero as a crash.
 
 - `mergeable` ∈ `MERGEABLE | CONFLICTING | UNKNOWN`. `UNKNOWN` is normal
   right after a push (GitHub computes lazily; your fetch queues the
@@ -277,7 +266,8 @@ future pass re-audit.
 
 ## Deliver the verdict
 
-One comment via `gh pr comment NUMBER --body-file`:
+One comment via `node FORGE pr-comment NUMBER --body-file /path/to/verdict.md
+--repo OWNER/REPO`:
 
 ```md
 gsd-loop verdict for COMMIT_SHA issue #ISSUE

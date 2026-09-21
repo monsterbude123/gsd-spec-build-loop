@@ -10,10 +10,10 @@ there's nothing to race.
 
 ## Ground rules before touching anything
 
-- Confirm the repo (`gh repo view --json nameWithOwner`) and that `origin`
+- Confirm the repo (`node FORGE repo --repo OWNER/NAME`) and that `origin`
   answers.
 - Look up the default branch —
-  `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name` — and
+  `node FORGE repo --repo OWNER/NAME` returns `defaultBranch` — and
   use what it says, whatever it says.
 - A pass never checks its branch out in the repository's main working tree.
   Each `gsd/NNN-*` branch lives in a dedicated git worktree at a predictable
@@ -29,7 +29,7 @@ WORKTREES_DIR="$(dirname "$MAIN_TREE")/$(basename "$MAIN_TREE")-worktrees"
 
   Create it with `git worktree add` (see "Implement") and run every
   checkout-side operation from inside it — installs, builds, tests, commits,
-  pushes, `gh pr create` — directly or via `git -C`. Because the path derives
+  pushes, `FORGE pr-create` — directly or via `git -C`. Because the path derives
   from the branch name, two concurrent passes on different issues occupy
   different worktrees, and a resumed pass lands back in the same directory.
   If `git worktree add` fails — worktrees unsupported or blocked on this
@@ -40,9 +40,10 @@ WORKTREES_DIR="$(dirname "$MAIN_TREE")/$(basename "$MAIN_TREE")-worktrees"
   non-destructive):
 
 ```bash
-for l in gsd:ready gsd:blocked gsd:approved gsd:rework gsd:escalated; do
-  gh label create "$l" --color ededed 2>/dev/null || true
-done
+node FORGE ensure-labels \
+  --labels gsd:ready --labels gsd:blocked --labels gsd:approved \
+  --labels gsd:rework --labels gsd:escalated \
+  --repo OWNER/NAME
 ```
 
 ## Pick up after a dead pass
@@ -54,7 +55,7 @@ left:
 - **Stale `gsd/NNN-*` worktrees.** List them with
   `git worktree list --porcelain`. For each one on a `gsd/NNN-*` branch,
   check the branch's PR
-  (`gh pr list --head BRANCH --state all --json number,state`) and whether
+  (`node FORGE pr-list --head BRANCH --state all --repo OWNER/NAME`) and whether
   the branch still exists on origin (`git ls-remote --heads origin BRANCH`).
   If the PR is merged or closed, or the branch is gone from origin, remove
   the worktree and prune its administrative entry:
@@ -87,20 +88,20 @@ git worktree prune
 - **Abandoned claims.** Find them:
 
   ```bash
-  gh issue list --state open --label gsd:ready --assignee "@me" --limit 200 \
-    --json number,closedByPullRequestsReferences
+  node FORGE issue-list --state open --label gsd:ready --assignee @me \
+  --repo OWNER/NAME
   ```
 
   Any with no open linked PR and no `gsd/NNN-*` branch anywhere: unassign
-  (`gh issue edit NUMBER --remove-assignee @me`) so the queue reclaims it.
+  (`node FORGE issue-edit NUMBER --remove-assignee @me --repo OWNER/NAME`)
+  so the queue reclaims it.
   If its PR was closed unmerged, additionally apply `gsd:escalated` with a
   comment — whether to rebuild is a human call.
 
 ## Repair queue takes priority
 
 ```bash
-gh pr list --state open --label gsd:rework --limit 200 \
-  --json number,title,headRefName,headRefOid,labels,updatedAt,url
+node FORGE pr-list --state open --label gsd:rework --repo OWNER/NAME
 ```
 
 Ignore anything also carrying `gsd:escalated` — those PRs have exited
@@ -110,13 +111,13 @@ Take the stalest remaining PR, resolve its linked issue and authenticated
 reviewer identity, then pull its most recent trusted verdict:
 
 ```bash
-REVIEWER_LOGIN=$(gh api user --jq .login)
+REVIEWER_LOGIN=$(node FORGE whoami --repo OWNER/REPO)
 ISSUE=LINKED_ISSUE
-gh pr view NUMBER --json headRefOid --jq .headRefOid
+node FORGE pr-view NUMBER --repo OWNER/REPO | jq -r .headRefOid
 REVIEWER_LOGIN="$REVIEWER_LOGIN" ISSUE="$ISSUE" \
-  gh api --paginate --slurp \
-  "repos/OWNER/REPO/issues/NUMBER/comments?per_page=100" \
-  --jq '[.[][] | select(.user.login == env.REVIEWER_LOGIN and ((.body | split("\n")[0]) | startswith("gsd-loop verdict for ")) and ((.body | split("\n")[0]) | endswith(" issue #" + env.ISSUE)))] | last'
+  node FORGE pr-comments NUMBER --repo OWNER/REPO | jq \
+  --arg reviewer "$REVIEWER_LOGIN" --arg issue "$ISSUE" \
+  '[.[] | select(.author.login == $reviewer and ((.body | split("\n")[0]) | startswith("gsd-loop verdict for ")) and ((.body | split("\n")[0]) | endswith(" issue #" + $issue)))] | last'
 ```
 
 Work the repair inside the PR branch's worktree: reuse the one a dead pass
@@ -159,19 +160,18 @@ the sentence that restarts automation ("Resolve this, then remove
 ## Choose an issue
 
 ```bash
-gh issue list --state open --label gsd:ready --limit 200 \
-  --json number,title,labels,body,assignees,createdAt,url \
-  --jq '[.[] | select(.assignees | length == 0)]'
+node FORGE issue-list --state open --label gsd:ready --assignee none \
+  --repo OWNER/NAME
 ```
 
-(The unassigned filter is client-side on purpose — `--search "no:assignee"`
-rides a lagging index and can miss an issue you unassigned seconds ago.)
+(The unassigned filter is client-side on purpose — forge-side "no assignee"
+searches ride a lagging index and can miss an issue you unassigned seconds ago.)
 
 Discard issues labeled `gsd:map`, `gsd:blocked`, or `gsd:escalated`. A map is
 planning provenance even if someone accidentally applies `gsd:ready`; it must
 never enter the build queue. Discard issues whose body says `Needs #N merged`
 unless `#N` is closed *and* its closing PR actually merged
-(`gh issue view N --json state,closedByPullRequestsReferences`) — closure
+(`node FORGE issue-view N --repo OWNER/NAME`) — closure
 without merged code doesn't satisfy the dependency. Of what's left, take the
 oldest.
 
@@ -183,7 +183,7 @@ merging creates new work.
 ## Stake the claim
 
 ```bash
-gh issue edit NUMBER --add-assignee @me
+node FORGE issue-edit NUMBER --add-assignee @me --repo OWNER/NAME
 ```
 
 Claim before deep reading, before any code. Immediately re-fetch: if the
@@ -195,7 +195,8 @@ GitHub account can both "win" it. One builder loop per repository, no more.
 
 ## Read the contract
 
-`gh issue view NUMBER --comments` for the full body and discussion. The `O-N`
+`node FORGE issue-view NUMBER --repo OWNER/NAME` for the body plus
+`node FORGE issue-comments NUMBER --repo OWNER/NAME` for the discussion. The `O-N`
 outcomes are the entire job; the `X-N` exclusions are the fence. Hold each
 outcome against each exclusion before writing a line. Nothing outside the
 contract: no drive-by refactors, no bonus fixes.
@@ -270,8 +271,8 @@ anything secret-shaped in the diff = full stop.
 
 First re-confirm the issue is still open and `gsd:ready` — a human may have
 pulled it mid-build. If they did, comment what the branch contains, skip the
-PR, stop. Otherwise push from the worktree and run `gh pr create --body-file`
-there with a compact body containing:
+PR, stop. Otherwise push from the worktree and run `node FORGE pr-create --title "..." --body-file /path/to/body.md \
+  --head gsd/NNN-short-slug --repo OWNER/NAME` there with a compact body containing:
 
 - The change and its motivation
 - `Closes #NNN` (real number)
@@ -313,8 +314,9 @@ When only a human can answer, ask exactly one answerable question in an
 issue comment, then in a single command label and release:
 
 ```bash
-gh issue comment NUMBER --body "..."
-gh issue edit NUMBER --add-label gsd:blocked --remove-assignee @me
+node FORGE issue-comment NUMBER --body "..." --repo OWNER/NAME
+node FORGE issue-edit NUMBER --add-label gsd:blocked --remove-assignee @me \
+  --repo OWNER/NAME
 ```
 
 The comment closes with the resumption instruction: "Answer above, then

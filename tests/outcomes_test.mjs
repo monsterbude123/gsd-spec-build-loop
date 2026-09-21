@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import {
   fingerprintContract,
@@ -426,7 +427,7 @@ assert.equal(parseOutcomeArguments([
   "--contract", contract,
 ]).expectedContract, contract);
 const fingerprintCommand = spawnSync(process.execPath, [
-  new URL("../.agents/skills/gsd-loop-review/scripts/sync-outcomes.mjs", import.meta.url).pathname,
+  fileURLToPath(new URL("../.agents/skills/gsd-loop-review/scripts/sync-outcomes.mjs", import.meta.url)),
   "fingerprint",
 ], { input: issueBody, encoding: "utf8" });
 assert.equal(fingerprintCommand.status, 0, fingerprintCommand.stderr);

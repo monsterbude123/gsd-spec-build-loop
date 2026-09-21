@@ -1,5 +1,10 @@
 # gsd-loop: discover
 
+> **Forge support (forge abstraction fork):** this playbook depends on
+> GitHub-native sub-issue and dependency APIs. It currently runs on GitHub
+> only; spec, build, and review are forge-neutral. Porting discover requires
+> a body-managed membership fallback for forges without sub-issues.
+
 Interactive only — this playbook charts or advances one discovery map with a
 human present. It is the optional front door for an effort that is too large
 and uncertain to turn into queue-ready issues yet. Clear the uncertainty and

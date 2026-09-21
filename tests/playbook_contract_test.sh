@@ -88,21 +88,21 @@ if printf '%s\n' "$repair_section" | grep -q 'issue contract or repository guida
   exit 1
 fi
 
-grep -q 'gh api graphql --paginate --slurp' "$REVIEW"
-grep -q 'comments(first: 100, after: $endCursor)' "$REVIEW"
-grep -q 'pageInfo { hasNextPage endCursor }' "$REVIEW"
+grep -q 'node FORGE pr-evidence NUMBER --repo OWNER/REPO > PR_EVIDENCE' "$REVIEW"
+grep -q 'comments(first: ${PR_COMMENTS_PAGE_SIZE}, after: $endCursor)' "$ROOT/lib/forge-github.mjs"
+grep -q 'pageInfo { hasNextPage endCursor }' "$ROOT/lib/forge-github.mjs"
 grep -q 'Dependency audit for HEAD_SHA: baseline compared' "$BUILD"
 grep -q 'node LINKAGE_SYNC ISSUE --repo OWNER/REPO --pr NUMBER --head HEAD_SHA' "$BUILD"
 grep -q 'resolve `LINKAGE_SYNC` to `scripts/ensure-linkage.mjs`' "$ROOT/.agents/skills/gsd-loop-build/SKILL.md"
 grep -q 'Dependency audit for HEAD_SHA: baseline compared' "$REVIEW"
-printf '%s\n' "$repair_section" | grep -q 'gh api --paginate --slurp'
+printf '%s\n' "$repair_section" | grep -q 'node FORGE pr-comments NUMBER --repo OWNER/REPO'
 if printf '%s\n' "$repair_section" | grep -q 'commands and result'; then
   echo 'repair evidence must use normalized JSON' >&2
   exit 1
 fi
 grep -q 'gsd-loop/dependency-audit-v1' "$BUILD"
 grep -q 'gsd-loop/dependency-audit-v1' "$REVIEW"
-grep -q 'REVIEWER_LOGIN=$(gh api user --jq .login)' "$REVIEW"
+grep -q 'REVIEWER_LOGIN=$(node FORGE whoami --repo OWNER/REPO)' "$REVIEW"
 grep -q 'gsd-loop verdict for HEAD_SHA issue #ISSUE' "$REVIEW"
 grep -q 'trusted verdict anywhere in the trail' "$REVIEW"
 grep -q 'node AUDIT_VALIDATOR --baseline BASE_REF_OID --head HEAD_REF_OID' "$REVIEW"
@@ -111,12 +111,16 @@ grep -q 'repository identity matches `OWNER/REPO`' "$REVIEW"
 grep -q 'pending-ci-NUMBER-HEAD_SHA' "$REVIEW"
 grep -q 'node OUTCOME_SYNC ISSUE pending --repo OWNER/REPO --pr NUMBER --head HEAD_SHA' "$REVIEW"
 grep -q 'node OUTCOME_SYNC ISSUE complete --repo OWNER/REPO --pr NUMBER --head HEAD_SHA' "$REVIEW"
-grep -q 'gh pr edit NUMBER --remove-label gsd:approved' "$REVIEW"
+grep -q 'node FORGE pr-edit NUMBER --remove-label gsd:approved --repo OWNER/REPO' "$REVIEW"
 grep -q 'gsd-loop linkage block for HEAD_SHA' "$REVIEW"
 grep -q 'no conditional' "$REVIEW"
 grep -q 'outcomes-invalidated' "$REVIEW"
 grep -q 'The verdict comment,' "$REVIEW"
 grep -q 'issue outcome checkboxes, and labels are the whole interface' "$REVIEW"
+grep -q 'resolve it to `scripts/forge.mjs`' "$ROOT/.agents/skills/gsd-loop-build/SKILL.md"
+grep -q 'resolve it to `scripts/forge.mjs`' "$ROOT/.agents/skills/gsd-loop-review/SKILL.md"
+grep -q 'resolve it to `scripts/forge.mjs`' "$ROOT/.agents/skills/gsd-loop-spec/SKILL.md"
+grep -q 'GSD_LOOP_FORGE=gitlab' "$ROOT/lib/forge.mjs"
 
 grep -q 'Codex: `$gsd-loop-build` or `$gsd-loop-review`' "$SCHEDULE"
 grep -q 'Claude Code: `/gsd-loop-build` or `/gsd-loop-review`' "$SCHEDULE"

@@ -15,3 +15,8 @@ this `SKILL.md`. Pass that absolute path wherever the playbook says
 `OUTCOME_SYNC`; installed skills bundle its runtime, so a global `gsd-loop`
 command is not required. Resolve `AUDIT_VALIDATOR` the same way to
 `scripts/validate-audit-evidence.mjs`. Execute exactly one pass.
+When the playbook names `FORGE`, resolve it to `scripts/forge.mjs` beside
+this `SKILL.md`. The forge defaults to GitHub; set `GSD_LOOP_FORGE=gitlab`
+for GitLab (requires `GITLAB_TOKEN` with api scope), or let the origin
+remote URL decide. Pass `--repo OWNER/NAME` exactly as the playbook shows.
+

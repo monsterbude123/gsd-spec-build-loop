@@ -10,14 +10,16 @@ owns a decision, it belongs to the user.
 
 ## Setup
 
-- Verify which repository you're filing into: `gh repo view --json nameWithOwner`.
+- Verify which repository you're filing into: `node FORGE repo --repo OWNER/NAME`
+  (returns `nameWithOwner` and `defaultBranch`).
 - Make sure the queue/review label vocabulary exists. Safe to repeat; existing
   labels keep whatever color and description a human gave them:
 
 ```bash
-for l in gsd:ready gsd:blocked gsd:approved gsd:rework gsd:escalated; do
-  gh label create "$l" --color ededed 2>/dev/null || true
-done
+node FORGE ensure-labels \
+  --labels gsd:ready --labels gsd:blocked --labels gsd:approved \
+  --labels gsd:rework --labels gsd:escalated \
+  --repo OWNER/NAME
 ```
 
 ## Optional discovery-map input
@@ -187,7 +189,7 @@ approval. Then create the issue, passing the body as a file so shell quoting
 can't mangle it:
 
 ```bash
-gh issue create --title "TITLE" --body-file /path/to/draft.md
+node FORGE issue-create --title "TITLE" --body-file /path/to/draft.md --repo OWNER/NAME
 ```
 
 Relay the issue number and URL exactly as returned — downstream playbooks trust

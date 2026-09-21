@@ -14,3 +14,8 @@ When the playbook names `MAP_VALIDATOR`, resolve it to
 `scripts/validate-discovery-map.mjs` beside this `SKILL.md`.
 When it names `DISCOVERY_PROTOCOL`, resolve it to
 `scripts/manage-discovery.mjs` beside this `SKILL.md`.
+When the playbook names `FORGE`, resolve it to `scripts/forge.mjs` beside
+this `SKILL.md`. The forge defaults to GitHub; set `GSD_LOOP_FORGE=gitlab`
+for GitLab (requires `GITLAB_TOKEN` with api scope), or let the origin
+remote URL decide. Pass `--repo OWNER/NAME` exactly as the playbook shows.
+
