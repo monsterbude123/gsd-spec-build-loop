@@ -29,6 +29,24 @@ global skill directory.
        gsd:approved ──▶ human merges
 ```
 
+## Forge support
+
+spec, build, and review talk to the forge through a small abstraction
+(`lib/forge.mjs`) with two backends: GitHub (via `gh`) and GitLab (via the
+REST API with `GITLAB_TOKEN`; set `GSD_LOOP_FORGE=gitlab`, or let the origin
+remote URL decide). The loop state model — labels, SHA-pinned verdicts,
+`Closes #N` linkage, contract fingerprints — is forge-neutral; the `ci`
+required check maps to GitLab's "pipelines must succeed" setting.
+
+Scope notes for this fork:
+
+- `discover` still requires GitHub-native sub-issue and dependency APIs.
+- `init` and `doctor` still probe GitHub-only signals (rulesets, check runs);
+  on GitLab, create the five `gsd:*` labels manually and run the review lane
+  only when pipeline-required merging is configured.
+- The dependency-audit evidence schema (`gsd-loop/dependency-audit-v1`) is
+  unchanged and forge-neutral.
+
 ## The four playbooks
 
 | Playbook | Mode | One pass does |

@@ -120,7 +120,7 @@ grep -q 'issue outcome checkboxes, and labels are the whole interface' "$REVIEW"
 grep -q 'resolve it to `scripts/forge.mjs`' "$ROOT/.agents/skills/gsd-loop-build/SKILL.md"
 grep -q 'resolve it to `scripts/forge.mjs`' "$ROOT/.agents/skills/gsd-loop-review/SKILL.md"
 grep -q 'resolve it to `scripts/forge.mjs`' "$ROOT/.agents/skills/gsd-loop-spec/SKILL.md"
-grep -q 'GSD_LOOP_FORGE=gitlab' "$ROOT/lib/forge.mjs"
+grep -q 'GSD_LOOP_FORGE=gitlab' "$ROOT/lib/forge.mjs"
 
 grep -q 'Codex: `$gsd-loop-build` or `$gsd-loop-review`' "$SCHEDULE"
 grep -q 'Claude Code: `/gsd-loop-build` or `/gsd-loop-review`' "$SCHEDULE"
