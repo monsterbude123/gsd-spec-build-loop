@@ -218,6 +218,29 @@ import { BlockedError, UsageError } from "../lib/errors.mjs";
   assert.equal(post.payload.source_branch, "gsd/7-x");
 }
 
+// pr-edit 的标签增删:MR API 只认全量 labels,必须先读现值再合并/移除(gh 增删语义)
+{
+  const putPayloads = [];
+  const run = (program, argumentsList) => {
+    const url = argumentsList[argumentsList.length - 1];
+    const dataArg = argumentsList.find((a) => typeof a === "string" && a.startsWith("@"));
+    if (dataArg) {
+      putPayloads.push(JSON.parse(readFileSync(dataArg.slice(1), "utf8")));
+      return { status: 0, stdout: "\n200", stderr: "" };
+    }
+    if (url.includes("/merge_requests/3")) {
+      return { status: 0, stdout: `${JSON.stringify({ iid: 3, labels: ["gsd:rework", "keep-me"] })}\n200`, stderr: "" };
+    }
+    return { status: 0, stdout: "null\n200", stderr: "" };
+  };
+  const forge = createGitLabForge({
+    cwd: "/tmp/project", repo: "group/project", run,
+    env: { GITLAB_TOKEN: "t" }, host: "gitlab.example",
+  });
+  forge.prEdit(3, { addLabels: ["gsd:escalated"], removeLabels: ["gsd:rework"] });
+  assert.equal(putPayloads.at(-1).labels, "keep-me,gsd:escalated");
+}
+
 // ---- runForgeCli(分发与错误路径) ----
 {
   assert.throws(() => runForgeCli({ argumentsList: ["nonsense-method"], env: { GSD_LOOP_FORGE: "github" } }), UsageError);
