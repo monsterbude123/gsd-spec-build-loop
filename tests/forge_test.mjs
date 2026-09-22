@@ -193,6 +193,31 @@ import { BlockedError, UsageError } from "../lib/errors.mjs";
   assert.deepEqual(linked.sort(), [3, 4, 5, 6]);
 }
 
+// pr-create 的 base 缺省 = 项目默认分支(gh 语义)
+{
+  const bodies = [];
+  const run = (program, argumentsList) => {
+    const url = argumentsList[argumentsList.length - 1];
+    const dataArg = argumentsList.find((a) => typeof a === "string" && a.startsWith("@"));
+    if (dataArg) {
+      bodies.push({ url, payload: JSON.parse(readFileSync(dataArg.slice(1), "utf8")) });
+      return { status: 0, stdout: `${JSON.stringify({ iid: 12, web_url: "u" })}\n200`, stderr: "" };
+    }
+    if (url.endsWith("/api/v4/projects/group%2Fproject")) {
+      return { status: 0, stdout: `${JSON.stringify({ default_branch: "trunk" })}\n200`, stderr: "" };
+    }
+    return { status: 0, stdout: "null\n200", stderr: "" };
+  };
+  const forge = createGitLabForge({
+    cwd: "/tmp/project", repo: "group/project", run,
+    env: { GITLAB_TOKEN: "t" }, host: "gitlab.example",
+  });
+  forge.prCreate({ title: "T", body: "B", head: "gsd/7-x" });
+  const post = bodies.at(-1);
+  assert.equal(post.payload.target_branch, "trunk");
+  assert.equal(post.payload.source_branch, "gsd/7-x");
+}
+
 // ---- runForgeCli(分发与错误路径) ----
 {
   assert.throws(() => runForgeCli({ argumentsList: ["nonsense-method"], env: { GSD_LOOP_FORGE: "github" } }), UsageError);
