@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createForge, detectForge, FORGES, runForgeCli } from "../lib/forge.mjs";
 import { createGitLabForge } from "../lib/forge-gitlab.mjs";
 import { BlockedError, UsageError } from "../lib/errors.mjs";
@@ -121,6 +122,39 @@ import { BlockedError, UsageError } from "../lib/errors.mjs";
     host: "gitlab.example",
   });
   assert.equal(forge.whoami(), "gluser");
+}
+
+// issue-edit --add-assignee @me:必须解析为 GET /user 的 id,而不是按用户名 "me" 搜项目成员
+{
+  const putBodies = [];
+  const run = (program, argumentsList) => {
+    assert.equal(program, "curl");
+    const url = argumentsList[argumentsList.length - 1];
+    const dataArg = argumentsList.find((a) => typeof a === "string" && a.startsWith("@"));
+    if (dataArg) {
+      putBodies.push(JSON.parse(readFileSync(dataArg.slice(1), "utf8")));
+      return { status: 0, stdout: "\n200", stderr: "" };
+    }
+    if (url.endsWith("/api/v4/user")) {
+      return { status: 0, stdout: `${JSON.stringify({ username: "gluser", id: 42 })}\n200`, stderr: "" };
+    }
+    if (url.includes("/issues/7")) {
+      return {
+        status: 0,
+        stdout: `${JSON.stringify({ iid: 7, assignees: [{ username: "gluser", id: 42 }] })}\n200`,
+        stderr: "",
+      };
+    }
+    return { status: 0, stdout: "[]\n200", stderr: "" };
+  };
+  const forge = createGitLabForge({
+    cwd: "/tmp/project", repo: "group/project", run,
+    env: { GITLAB_TOKEN: "t" }, host: "gitlab.example",
+  });
+  forge.issueEdit(7, { addAssignee: "@me" });
+  assert.deepEqual(putBodies.at(-1), { assignee_ids: [42] });
+  // 无法解析的指派对象必须显式报错:认领静默 no-op 比失败更隐蔽
+  assert.throws(() => forge.issueEdit(7, { addAssignee: "ghost" }), /could not resolve assignee/);
 }
 
 // 无 token 时明确报错(而不是崩在 curl)
